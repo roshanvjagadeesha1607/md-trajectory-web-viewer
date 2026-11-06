@@ -1,0 +1,64 @@
+# --- local machine state: NEVER distribute ---------------------------------
+# The registry holds this user's absolute simulation paths and is created
+# empty by install.sh on every fresh machine.
+projects.json
+projects.json.lock
+projects.json.tmp
+logs/
+meta/
+data/
+
+# --- python ----------------------------------------------------------------
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- editors / OS noise ------------------------------------------------------
+.claude/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- test/runtime artifacts --------------------------------------------------
+*.pid
+*.log
+tmp_*.gro
+*.tmp
+
+# Molecular dynamics simulation data
+*.xtc
+*.trr
+*.tpr
+*.cpt
+*.edr
+*.gro
+*.pdb
+*.xvg
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local development and diagnostic files
+tools/_dev/
+tools/wire_mode_test.py
+static/_gsw*
+static/_pts_*
+
+# Research-specific development test fixtures
+tools/bench_profile.py
+tools/browse_ui_test.py
+tools/folder_feature_test.py
+tools/library_test.py
+tools/multi_project_test.py
+
+# Additional project-specific development tests
+tools/overlay_visual_test.py
+tools/selection_test.py
+tools/surface_partial_probe.py
+tools/surface_play_test.py
+tools/surface_sf_sweep.py
+tools/surface_test.py

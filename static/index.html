@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MD Trajectory Viewer</title>
+<style>
+  :root {
+    --bg:#0b0e14; --panel:#151a24; --panel2:#1d2530; --line:#2a3340;
+    --fg:#e6edf3; --muted:#8b98a9; --accent:#4ea1ff; --accent2:#37c98b;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:14px/1.4 system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  #app { display:flex; flex-direction:column; height:100%; }
+  header { display:flex; align-items:center; gap:14px; padding:8px 14px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex:0 0 auto; }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  header .sub { color:var(--muted); font-size:12px; }
+  #main { flex:1 1 auto; display:flex; min-height:0; }
+  #viewport { flex:1 1 auto; position:relative; min-width:0; background:#000; }
+  #viewport canvas { display:block; }
+  #sidebar { flex:0 0 330px; background:var(--panel); border-left:1px solid var(--line);
+    overflow-y:auto; padding:12px; }
+  .group { margin-bottom:18px; }
+  .group h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted); margin:0 0 8px; font-weight:600; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  button, select { background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:7px 10px; font-size:13px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#04101f; font-weight:600; }
+  button.icon { min-width:42px; font-size:15px; }
+  button.active { background:var(--accent2); border-color:var(--accent2); color:#04140d; font-weight:600; }
+  input[type=range] { width:100%; accent-color: var(--accent); }
+  label.chk { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; user-select:none; }
+  .stat { font-size:12px; color:var(--muted); margin:2px 0; }
+  .stat b { color:var(--fg); font-variant-numeric:tabular-nums; }
+  #frameno { font-variant-numeric:tabular-nums; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; background:var(--panel2);
+    border:1px solid var(--line); color:var(--muted); }
+  #status { position:absolute; left:12px; bottom:12px; background:rgba(10,14,20,.82);
+    border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:12px;
+    color:var(--muted); max-width:70%; pointer-events:none; }
+  #status.err { color:#ff6b6b; border-color:#7a2530; }
+  .repbtns button { flex:1 1 auto; }
+  input[type=number] { width:86px; background:var(--panel2); color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .legend { font-size:11px; color:var(--muted); }
+  .back { color:var(--muted); text-decoration:none; font-size:12px;
+    border:1px solid var(--line); border-radius:999px; padding:4px 11px;
+    white-space:nowrap; }
+  .back:hover { color:var(--fg); border-color:var(--muted); }
+  .hint { font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .compcat { font-size:11px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.04em; margin:8px 0 3px; }
+  .compchk { margin-bottom:3px; }
+  .compchk .chip { display:inline-block; width:10px; height:10px;
+    border-radius:3px; margin:0 5px; border:1px solid #0006; flex:0 0 auto; }
+  .warn { color:#e8c468; margin-top:6px; }
+  kbd { background:var(--panel2); border:1px solid var(--line); border-radius:4px;
+    padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <a class="back" href="/" title="Back to the project library">&#8592; Library</a>
+    <h1 id="title">Loading…</h1>
+    <span class="sub" id="subtitle">streamed frame-by-frame from the server (the
+      trajectory itself never leaves it)</span>
+    <span style="flex:1"></span>
+    <a id="save-to-library" hidden href="#" title="Register these exact files as a permanent library entry"
+       style="font-size:12.5px;color:#04140d;background:var(--accent2);border-radius:7px;padding:5px 11px;text-decoration:none;font-weight:600;flex:none;">Save to Library</a>
+    <span class="pill" id="info-pill">loading…</span>
+  </header>
+  <div id="main">
+    <div id="viewport"><div id="status">Initializing…</div></div>
+    <div id="sidebar">
+
+      <div class="group">
+        <h2>Trajectory playback</h2>
+        <div class="row" style="justify-content:center">
+          <button class="icon" id="toStart" title="First frame">⏮</button>
+          <button class="icon" id="prev" title="Previous frame">⏪</button>
+          <button class="primary" id="playpause" style="min-width:96px">▶ Play</button>
+          <button class="icon" id="next" title="Next frame">⏩</button>
+          <button class="icon" id="toEnd" title="Last frame">⏭</button>
+        </div>
+        <div class="row"><input type="range" id="timeline" min="0" max="0" value="0"></div>
+        <div class="row" style="justify-content:space-between">
+          <span id="frameno" class="stat">frame – / –</span>
+          <span class="stat">t = <b id="timeno">0.00</b> ns</span>
+          <span class="stat">actual: <b id="fpsnow">–</b> fps</span>
+        </div>
+        <div class="row">
+          <span class="stat">speed</span>
+          <select id="speed">
+            <option value="1">1 fps</option>
+            <option value="2">2 fps</option>
+            <option value="4" selected>4 fps</option>
+            <option value="8">8 fps</option>
+            <option value="15">15 fps</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input type="number" id="speedcustom" min="1" max="120" step="1"
+                 placeholder="fps" title="Custom playback FPS (1–120)"
+                 style="width:52px; display:none; background:var(--panel2);
+                        color:var(--fg); border:1px solid var(--line);
+                        border-radius:6px; padding:5px 6px; font-size:13px;">
+          <span class="stat">jump&nbsp;to&nbsp;frame</span>
+          <input type="number" id="jump" min="0" placeholder="#">
+        </div>
+        <div class="row"><label class="chk"><input type="checkbox" id="loop" checked> loop</label></div>
+      </div>
+
+      <div class="group">
+        <h2>Playback detail (data streamed per frame)</h2>
+        <div class="row repbtns">
+          <button data-view="ca" class="active">Cα (Fast)</button>
+          <button data-view="bb">Backbone</button>
+          <button data-view="full">Full atoms</button>
+        </div>
+        <div class="legend">Cα / Backbone stream only the protein trace +
+          ticked components (~0.9&nbsp;MB/frame) — the fast default. Full
+          atoms = all <b id="legend-atoms">–</b> (~8.6&nbsp;MB/frame) for
+          detailed inspection. Unticked components are never transferred in
+          Cα/Backbone mode.</div>
+      </div>
+
+      <div class="group">
+        <h2>Playback step</h2>
+        <div class="row">
+          <select id="framestep">
+            <option value="1" selected>Every frame</option>
+            <option value="2">Every 2nd frame</option>
+            <option value="5">Every 5th frame</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input type="number" id="stepcustom" min="1" step="1"
+                 placeholder="step" title="Custom playback step (1 … frame count)"
+                 style="width:52px; display:none; background:var(--panel2);
+                        color:var(--fg); border:1px solid var(--line);
+                        border-radius:6px; padding:5px 6px; font-size:13px;">
+        </div>
+        <div class="legend">Step affects <b>Play only</b>. Slider, ⏪/⏩ and
+          jump-to-frame always reach every one of the
+          <b id="legend-frames">–</b> frames.</div>
+      </div>
+
+      <div class="group">
+        <h2>Protein representation</h2>
+        <div class="row repbtns">
+          <button data-rep="cartoon" class="active">Cartoon</button>
+          <button data-rep="backbone">Backbone</button>
+          <button data-rep="line">Line</button>
+          <button data-rep="surface" title="Surface (NGL msms — molecular surface; animates with the trajectory, coarse while playing)">Surface</button>
+          <button data-rep="gsurf" title="Gaussian Surface (QuickSurf-like density envelope — animates with the trajectory)">Gaussian</button>
+        </div>
+        <div class="row" id="surfrow" hidden>
+          <span class="stat">surface opacity</span>
+          <input type="range" id="surfopacity" min="20" max="100" value="85"
+                 style="flex:1; width:auto">
+          <span class="stat"><b id="surfopacityval">85%</b></span>
+        </div>
+        <div class="row" id="gsurfrow" hidden>
+          <span class="stat">quality</span>
+          <select id="gsquality">
+            <option value="coarse">Fast / coarse</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div class="row" id="gsurfrow2" hidden>
+          <label class="chk"><input type="checkbox" id="gswater"> include water</label>
+          <label class="chk"><input type="checkbox" id="gshet"> include ligands/ions</label>
+        </div>
+        <div class="row" id="gsurfstat" hidden>
+          <span class="stat" id="gsurfms">Gaussian mesh: –</span>
+        </div>
+        <div class="legend" id="surfnote" hidden>Surface (NGL msms)
+          — probe-based molecular surface. Built from the atoms currently
+          transferred — in Cα/Backbone mode that is the trace only (tube-like
+          envelope); switch to <b>Full atoms</b> for a true molecular surface.
+          The mesh rebuilds whenever the frame changes, so <b>playback works
+          here</b>: the grid is automatically coarse while playing and refined
+          back to the selected quality when paused. Large systems (Full atoms)
+          play slower. (Gaussian is a separate, smoother envelope.)</div>
+        <div class="legend" id="gsurfnote" hidden>Gaussian Surface
+          (QuickSurf-like) — a <b>Gaussian density envelope</b>, not a molecular
+          surface: every protein atom contributes a smooth density blob and an
+          isosurface of the summed density is meshed (splat + box-spline +
+          marching cubes, computed in a Web Worker — the same splat/box idea as
+          VMD QuickSurf, on CPU). It <b>animates with the trajectory</b> and is
+          computed from the atoms currently transferred (Cα/Backbone = trace
+          only; <b>Full atoms</b> for a scientifically meaningful envelope).
+          While <b>playing</b> a coarse mesh keeps frames fast and it refines to
+          the selected quality when <b>paused</b>. Ligands/ions stay visible via
+          their own reps; water is excluded unless ticked.
+          <span id="gsurfauto"></span></div>
+        <div class="row">
+          <span class="stat">protein colour</span>
+          <select id="colorScheme">
+            <option value="chainid" selected>by chain</option>
+            <option value="chainindex">by chain index</option>
+            <option value="resname">by residue</option>
+            <option value="uniform">uniform (cyan)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="group" id="compgroup" hidden>
+        <h2>Components &mdash; ligands &amp; ions</h2>
+        <div id="comproll"></div>
+        <div class="legend" id="complegend"></div>
+        <div class="legend warn" id="bulkwarn"></div>
+      </div>
+
+      <div class="group" id="selgroup">
+        <!-- built by selection_ui.js (VMD-like representation list) -->
+      </div>
+
+      <div class="group">
+        <h2>Camera</h2>
+        <div class="row">
+          <button id="resetView">⤢ Reset / recentre view</button>
+          <label class="chk"><input type="checkbox" id="spin"> spin</label>
+        </div>
+        <div class="row">
+          <span class="stat">mouse</span>
+          <select id="mouse">
+            <option value="default" selected>drag=LMB rotate, wheel=zoom</option>
+            <option value="pymol">PyMOL-style (RMB zoom)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>System info</h2>
+        <div class="stat">atoms: <b id="i-atoms">–</b></div>
+        <div class="stat">frames: <b id="i-frames">–</b> · interval
+          <b id="i-interval">–</b></div>
+        <div class="stat">time range: <b id="i-time">–</b></div>
+        <div class="stat" id="i-files">files: –</div>
+        <div class="hint">
+          Mouse: <kbd>LMB</kbd> rotate · <kbd>wheel</kbd> zoom · <kbd>MMB/RMB</kbd> pan · <kbd>click</kbd> pick<br>
+          Keys: <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> step frames
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/ngl.min.js"></script>
+<script src="/static/gaussiansurf.js"></script>
+<script src="/static/selection.js"></script>
+<script src="/static/selection_coords.js"></script>
+<script src="/static/selection_overlay.js"></script>
+<script src="/static/selection_reps.js"></script>
+<script src="/static/selection_ui.js"></script>
+<script>
+"use strict";
+// ------------------------------------------------------------------
+// MD viewer frontend — NGL 2.4.0 + MDsrv-protocol streaming.
+// A single structure component + single server-backed trajectory.
+// "Full/Cα" modes just change the component selection, so NGL re-streams
+// only the selected atom ranges (which map 1:1 to XTC file positions).
+//
+// MULTI-PROJECT: the page is served at /view/<PROJECT_ID>/ and is entirely
+// project-driven — the project id comes from the URL, all metadata and the
+// component table from `<base>api/project`, and every data request is scoped to
+// this project's own URL namespace. Nothing here is specific to any one
+// simulation.
+// ------------------------------------------------------------------
+const STATUS = document.getElementById('status');
+let statusErr = false;
+function setStatus(msg, err) {
+  if (statusErr && !err) return;
+  STATUS.textContent = msg; statusErr = !!err;
+  STATUS.classList.toggle('err', !!err);
+}
+
+// Project scope, taken from the page URL. Everything below is relative to
+// BASE, so the whole app also works behind a proxy that mounts it under a
+// path prefix (a future public HTTPS URL needs no change here).
+const PID = decodeURIComponent(
+  (location.pathname.match(/\/view\/([^/?#]+)/) || [])[1] || '');
+const BASE = location.pathname.replace(/\/(?:index\.html)?$/, '/');
+const GRO_URL  = BASE + 'file/structure.gro';
+const TRAJ_URL = 'track.xtc';          // name is cosmetic; routed by project
+const SEL_FULL = '';                   // whole structure
+
+// Filled in by configure() from the server before anything loads.
+let DELTA_NS = 0.01;                   // fallback: 10 ps between frames
+let META = { name: PID, description: '', atoms: null, frames: null,
+             components: [], first_time_ns: 0, last_time_ns: null,
+             frame_interval_ps: null };
+// One entry per NON-polymer component discovered from the GRO (ligands,
+// ions, water, unknowns). Built by buildCompUi() from META.components.
+const CMP = [];
+
+// NGL parses residue selectors by whitespace-splitting the selection text,
+// so names containing spaces/brackets/commas cannot appear in a streamed
+// selection (their own rep + Full mode still cover them). Everything else
+// goes through bracket selectors, which are case-insensitive on the lexer
+// side and cannot collide with selector keywords.
+const SELE_SAFE = /^[A-Za-z0-9][A-Za-z0-9+/@.\-]{0,4}$/;
+// (the selector lexer upper-cases every token, so bracket names match
+// case-insensitively; mixed-case GRO names are fine either way)
+const isSeleSafe = rn => SELE_SAFE.test(rn);
+const brackets = names => names.length
+  ? '[' + names.join(',') + ']' : null;
+
+// Playback-detail modes. Each maps to a component selection; the server
+// streams exactly those atoms and nothing else. The protein term is a
+// COMPLEMENT: everything that is not a known non-polymer residue — so any
+// protein-ish residue, standard or not, is included automatically, and
+// non-polymer atoms never leak into the cartoon selection. Visible
+// components are unioned in; hidden ones are simply not part of the
+// selection and are never transferred. NOT binds exactly one following
+// token in NGL's grammar and [a,b,c] is a single token, so `not [..] and
+// .CA or [..]` needs no extra parentheses (verified against 2.4).
+function nonPoly()  { return CMP.filter(c => !c.polymer); }
+function safeNames(list) { return list.filter(c => isSeleSafe(c.resname)).map(c => c.resname); }
+function proteinTerm(view) {
+  const atomSel = view === 'ca' ? '.CA' : '(.N or .CA or .C or .O)';
+  const sub = safeNames(nonPoly());
+  return sub.length ? 'not ' + brackets(sub) + ' and ' + atomSel : atomSel;
+}
+function visibleComponentTerm() {
+  const on = safeNames(nonPoly().filter(c => c.el && c.el.checked));
+  return on.length ? brackets(on) : null;
+}
+function proteinRepSel() {
+  // The body rep covers the protein complement in every mode (in Full mode
+  // without the .CA filter, so side chains belong to it too).
+  if (A.view === 'full') {
+    const sub = safeNames(nonPoly());
+    return sub.length ? 'not ' + brackets(sub) : 'all';
+  }
+  return proteinTerm(A.view);
+}
+function viewSele(view) {
+  if (view === 'full') return SEL_FULL;
+  const prot = proteinTerm(view);
+  const vis = visibleComponentTerm();
+  return vis ? prot + ' or ' + vis : prot;
+}
+
+// ------------------------------------------------------------------
+// SELECTION (VMD-like, MULTIPLE representations) — engine in selection.js,
+// per-representation overlays in selection_overlay.js, the representation
+// manager in selection_reps.js and the panel UI in selection_ui.js.
+// Everything is evaluated client-side against the full parsed structure (all
+// atoms' metadata and serials exist in EVERY playback mode; Cα mode only
+// limits which COORDINATES are refreshed per frame). spatialHash gives
+// O(result) neighbour search for `within`; no endpoint, no O(N²), no
+// full-trajectory download. There is NO single global selection: each row in
+// the panel is an independent representation with its own expression, style,
+// colour, visibility, dynamic flag and overlay component.
+// ------------------------------------------------------------------
+const SELCTX = {
+  comp: () => A.comp, meta: () => META, app: () => A,
+  view: () => A.view, frame: () => A.frame,
+  engine: () => SEL.engine,
+  coords: () => SEL.coords,
+};
+const SEL = {
+  engine: new SelectionEngine.Selector(SELCTX),
+  manager: null,          // RepManager, created with the stage below
+};
+// Thin compatibility layer: the existing playback / view-change hooks call
+// SelUI.onFrame / SelUI.onViewChange; they forward to the manager, which
+// refreshes EVERY overlay and re-evaluates only the dynamic spatial rows.
+const SelUI = {
+  onFrame(f) { if (SEL.manager) SEL.manager.onFrame(f); },
+  onViewChange() { if (SEL.manager) SEL.manager.onViewChange(); },
+  onPick(pk) { if (window.SelPanelUI) SelPanelUI.onPick(pk); },
+};
+
+// ------------------------------------------------------------------
+// Streaming datasource. Behaviourally identical to NGL.MdsrvDatasource
+// except for one thing: we hand-write the selection body. NGL POSTs the
+// full atom-range text (~640 kB for Cα) on EVERY frame and we would
+// re-parse it every time; the server parses it once and answers with an
+// X-Sel-Token, after which we POST `tok=<token>` (~25 B).
+// Falls back to NGL.MdsrvDatasource if the subclass hooks are missing.
+// ------------------------------------------------------------------
+function makeDatasource() {
+  if (typeof NGL.MdsrvDatasource !== 'function')
+    return new NGL.MdsrvDatasource(BASE);
+  class Fast extends NGL.MdsrvDatasource {
+    getFrameParams(path, atomIndices) {
+      const key = (atomIndices && atomIndices.length)
+        ? atomIndices.map(r => r.join(',')).join(';') : '';
+      this.__sel = key;
+      const tok = key && window.__selTok ? window.__selTok[key] : null;
+      if (tok) return 'tok=' + tok;
+      return key ? 'atomIndices=' + key : 'full';
+    }
+  }
+  try {
+    const ds = new Fast(BASE);
+    if (typeof ds.getFrameParams !== 'function') throw new Error('no hook');
+    return ds;
+  } catch (e) {
+    console.warn('fast datasource unavailable, using stock MdsrvDatasource');
+    return new NGL.MdsrvDatasource(BASE);
+  }
+}
+window.__selTok = {};   // selection-text -> server token
+NGL.setTrajectoryDatasource(makeDatasource());
+// Token learning: when a frame request carries a full atomIndices body,
+// remember the server-issued X-Sel-Token keyed by exactly that range text
+// (no shared-variable race with mode switches). A 422 (token evicted
+// server-side) drops the token so the next request falls back to the full
+// body and re-learns it.
+(function () {
+  const O = XMLHttpRequest.prototype.open, S = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (m, u) {
+    this.__mtv = String(u).indexOf('/traj/frame') >= 0; return O.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    if (this.__mtv) {
+      const b = body ? String(body) : '';
+      const isNew = b.indexOf('atomIndices=') === 0;
+      const isTok = b.indexOf('tok=') === 0;
+      if (isTok) {
+        // Neutralise a rejected token before NGL's own load handler runs:
+        // shadow `.response` so a 422 reads as an empty response (NGL's
+        // error branch, no callback) instead of parsing our text body as
+        // coordinates. The frame stays uncached; the deleted token below
+        // plus the watchdog restore a healthy request within seconds.
+        try {
+          const native = Object.getOwnPropertyDescriptor(
+            XMLHttpRequest.prototype, 'response').get;
+          Object.defineProperty(this, 'response', { configurable: true,
+            get() { return this.status === 422 ? null : native.call(this); } });
+        } catch (e) { /* getter locked: watchdog still recovers */ }
+      }
+      this.addEventListener('load', function () {
+        if (isNew && this.status === 200) {
+          const t = this.getResponseHeader('X-Sel-Token');
+          if (t) window.__selTok[b.slice('atomIndices='.length)] = t;
+        } else if (isTok && this.status === 422) {
+          // token no longer valid server-side: drop it so the next request
+          // sends the full range body again and re-learns the token.
+          const tok = b.slice(4);
+          for (const k in window.__selTok)
+            if (window.__selTok[k] === tok) delete window.__selTok[k];
+        }
+      });
+    }
+    return S.apply(this, arguments);
+  };
+})();
+
+const stage = new NGL.Stage('viewport', {
+  backgroundColor: 'black', quality: 'medium', impostor: true,
+  workerDefault: true, sampleLevel: 0, tooltip: true,
+  clipFar: 1000, fogFar: 500
+});
+
+const A = {
+  comp: null, traj: null, trajw: null,
+  frameCount: 0, frame: -1,
+  playing: false, timer: null, fps: 4, loop: true, step: 1,
+  rep: 'cartoon', color: 'chainid', view: 'ca',
+  frameStamps: [], ready: false, pending: 0,
+  // Surface (NGL msms) trajectory-update state — double-buffered scheduler
+  // (see the SRF block). The mesh is generated geometry and must be
+  // recomputed from the CURRENT coordinates for every displayed frame; the
+  // next mesh is built in a BACK rep while the completed FRONT rep stays
+  // visible, so the protein surface never blanks between frames.
+  // surfaceBusy: a build is in flight or a target is pending.
+  // surfaceDisplayedFrame: the trajectory frame whose mesh is on screen
+  //   (surfaceRenderedFrame is the same value, kept for compatibility).
+  surfaceBusy: false,
+  surfaceRenderedFrame: -1, surfaceDisplayedFrame: -1,
+  surfaceRequestedFrame: -1, surfaceBuildFrame: -1,
+};
+
+// ---- representations ---------------------------------------------
+function colorParams() {
+  if (A.color === 'uniform') return { colorScheme: 'uniform', color: 'cyan' };
+  return { colorScheme: A.color };
+}
+function rebuildProteinRep() {
+  const comp = A.comp;
+  const keepSurface = A.rep === 'surface';
+  comp.eachRepresentation(r => {
+    // this NGL build exposes the rep name as r.name (r.representation
+    // does not exist on the proxy)
+    const n = r.name;
+    if (['cartoon','backbone','line','surface'].includes(n)) {
+      // Surface proxies are owned by the double-buffer pipeline: removing
+      // them here would blank the screen before srBegin could retire them
+      // after the replacement is up. srBegin/srTick retire them instead.
+      if (n === 'surface' && keepSurface) return;
+      comp.removeRepresentation(r);
+    }
+  });
+  const cp = colorParams();
+  const sel = proteinRepSel();
+  if (A.rep === 'gsurf') {
+    // Gaussian Surface is NOT a component representation — it renders from
+    // a Worker-computed density mesh into its own Shape/MeshBuffer (see
+    // gaussiansurf.js). The protein atoms are the density source, so no body
+    // rep is added here; ligands/ions/water keep their own reps.
+    GaussSurf.setActive(true);
+    return;
+  }
+  if (A.rep === 'cartoon') {
+    comp.addRepresentation('cartoon', Object.assign({ sele: sel, roundness: 0.3 }, cp));
+  } else if (A.rep === 'backbone') {
+    comp.addRepresentation('backbone', Object.assign({ sele: sel, radius: 0.2, smoothSheet: true }, cp));
+  } else if (A.rep === 'surface') {
+    // Surface: owned entirely by the double-buffered pipeline below
+    // (srBegin/srRequest). Fresh start with the current selection/colour.
+    srBegin();
+    return;
+  } else {
+    comp.addRepresentation('line', Object.assign({ sele: sel }, cp));
+  }
+}
+function surfOpacity() { return (+$('surfopacity').value) / 100; }
+// ---- Surface (NGL msms): double-buffered trajectory pipeline ----------
+// The msms mesh is GENERATED geometry: every displayed frame must be
+// recomputed from the CURRENT structure coordinates, and NGL offers no
+// in-place mesh swap — the SurfaceRepr's __infoList holds the ONLY copy of
+// the displayed mesh, so computing a replacement through the same repr
+// necessarily blanks what is on screen first (the remove-first flicker).
+// The pipeline therefore double-buffers the protein-surface rep:
+//
+//   FRONT (visible, completed) stays on screen while BACK (hidden) builds
+//   from the newest applied frame; when BACK's mesh AND buffers are
+//   complete: back.setVisibility(true) -> one rendered frame -> retire the
+//   old front. visibleSurfaceCount is >= 1 at all times (briefly 2 during
+//   the swap, which is the atomic window).
+//
+// LATEST-FRAME-WINS: at most one build runs at a time and the pending
+// target is a single slot that every newer request overwrites. During Play
+// the surface samples the live trajectory edge (100 -> 104 -> 108 ...)
+// instead of queueing 101, 102, 103; memory stays bounded to
+// one displayed + one building rep (+ their msms workers), never a queue.
+//
+// Stale-surface guard (the previous frozen-mesh bug stays fixed): the
+// worker snapshots the position arrays when prepareData posts them, and
+// every build is a FRESH SurfaceRepr (empty __infoList, no cached MoLSurf,
+// prepare wrapped so a retired slot can never start). Each slot labels
+// itself with A.frame INSIDE the prepare wrapper — the instant whose
+// coordinates are provably read — so a completed mesh always corresponds
+// to a real, truthfully labelled trajectory frame.
+//
+// Exactness: Pause / slider / Next / Prev issue EXACT requests; a completed
+// build that no longer matches the exact target is retired WITHOUT display
+// (front stays visible), so the settled paused surface is exactly the
+// selected frame. The play/pause quality hop (coarse <-> refined) is one
+// extra double-buffered build, never a gap.
+//
+// Untouched: camera, ligand/ion/water reps, the structure, Gaussian.
+// Play-preset grid scale. NGL msms cost scales with scaleFactor, BUT the
+// grid parameter has a HARD FLOOR below which MSMS stops producing the
+// molecular envelope and emits only fragments around isolated atoms: on
+// test structure the coarse presets were measured directly (paused structure,
+// throwaway reps) — sf 0.5 => 128 verts / bbox diagonal 142 Å, sf 0.7/0.8
+// => 5-6k verts / diagonal ~186 Å, versus 112k verts / 233 Å at sf 1.0.
+// The old play preset (0.5) was therefore NOT a "coarse surface", it was a
+// degenerate computation whose complete output genuinely WAS a ~100-vertex
+// fragment (which is exactly the fragmented playback surface that was
+// observed — the meshes were complete, just of a broken mesh). 0.9 is the
+// coarsest preset that still wraps the full protein (measured 45k verts,
+// diagonal 231 Å) at ~2x the speed of the paused preset. srValidate below
+// catches any other selection/mode where a coarse grid degenerates.
+A.surfPlaySF = 0.9;
+const SRF = { gen: 0, front: null, back: null, target: null, timer: null,
+              dropped: 0, builds: [], ref: null };
+// Quality tag encodes the coarse-grid preset ('play:0.9' | 'pause') so an
+// escalation of the play preset (see srValidate's degenerate-grid ladder)
+// automatically invalidates builds/pending targets made at the old sf.
+function srQuality() {
+  return A.playing ? 'play:' + A.surfPlaySF : 'pause';
+}
+function surfaceParams(quality) {
+  const play = quality.indexOf('play') === 0;
+  const sf = play ? (parseFloat(quality.slice(5)) || A.surfPlaySF) : 1;
+  return Object.assign({
+    sele: proteinRepSel(), surfaceType: 'ms', probeRadius: 1.4,
+    scaleFactor: sf, smooth: play ? 0 : 1,
+    cutoff: 0, useWorker: true,
+    visible: false,               // hidden until the mesh is complete
+    transparent: true, opacity: surfOpacity(),
+  }, colorParams());
+}
+// ---- completeness validation ---------------------------------------
+// A SurfaceRepr whose __infoList merely EXISTS is NOT proof of a complete
+// envelope: msms at a degenerate grid spacing terminates "successfully"
+// with a ~100-vertex fragment (measured: sf<=0.8 on test structure gives
+// 5-6k verts with a bbox diagonal 20% smaller than the protein envelope).
+// srMeshStats measures the candidate; srValidate rejects anything that is
+// not a plausible full-protein mesh BEFORE it can ever replace the front.
+function srMeshStats(repr) {
+  const st = { v: 0, finite: true, tris: 0, diag: 0, parts: 0 };
+  try {
+    const info = repr.__infoList || [];
+    const mn = [1e30, 1e30, 1e30], mx = [-1e30, -1e30, -1e30];
+    for (const it of info) {
+      if (!it || !it.surface) return st;          // structurally incomplete
+      st.parts += 1;
+      const p = it.surface.getPosition();
+      st.v += p.length / 3;
+      for (let k = 0; k < p.length; k++) {
+        const x = p[k];
+        if (!(x === x)) { st.finite = false; continue; }  // NaN
+        const c = k % 3;
+        if (x < mn[c]) mn[c] = x;
+        if (x > mx[c]) mx[c] = x;
+      }
+    }
+    if (st.parts > 0) {
+      st.diag = Math.sqrt(Math.pow(mx[0]-mn[0], 2) + Math.pow(mx[1]-mn[1], 2) +
+                          Math.pow(mx[2]-mn[2], 2));
+    }
+    for (const b of (repr.bufferList || [])) {
+      const bg = b.geometry || (b.mesh && b.mesh.geometry);
+      if (bg) st.tris += bg.index ? bg.index.count / 3
+          : (bg.attributes && bg.attributes.position
+             ? bg.attributes.position.count / 3 : 0);
+    }
+  } catch (e) { st.finite = false; }
+  return st;
+}
+// atoms = protein atom count of the surface selection (structureView).
+// Ref = the paused-quality reference stats (frame-locked, validated against
+// the same selection); it sets the vertex floor and the bbox yardstick.
+// Vertex floor before any ref exists. Vertices scale with ENVELOPE AREA
+// (~atoms^0.72 for a compact blob), not linearly with atom count: the same
+// test structure meshes to ~112k verts from 2688 Calpha atoms and ~107k verts
+// from 41262 full atoms (side chains fill the interior and barely change
+// the surface). A 4-per-atom floor is reachable for Calpha (measured
+// 41 v/atom) but permanently unreachable for Full atoms (2.6 v/atom) —
+// it rejected every complete Full mesh. min(4a, 30a^0.72) keeps the strict
+// per-atom bound on small/thin selections where the measured degenerate
+// fragments were 0.05-2 v/atom (Calpha fragment: ~5.6k v vs floor 8.8k)
+// while tracking the area law on large selections (Full floor 63k vs
+// measured complete 107k, fragments <= ~1.5k).
+function srFloorV(atoms) {
+  return Math.max(500, Math.min(4 * atoms, 30 * Math.pow(atoms, 0.72)));
+}
+function srValidate(repr, atoms) {
+  const st = srMeshStats(repr);
+  if (st.parts === 0 || st.v === 0 || !st.finite || st.tris === 0) {
+    return { ok: false, why: 'mesh empty/nonfinite', st: st };
+  }
+  if (SRF.ref && SRF.ref.atoms === atoms) {
+    if (st.v < 0.35 * SRF.ref.ref_v) return { ok: false, why: 'verts', st: st };
+    if (st.diag < 0.85 * SRF.ref.ref_diag) return { ok: false, why: 'bbox', st: st };
+  } else {
+    // no reference yet (first mesh, or selection changed): scale-free floor.
+    if (st.v < srFloorV(atoms)) return { ok: false, why: 'verts', st: st };
+  }
+  return { ok: true, st: st };
+}
+function srCaptureRef(repr, atoms) {
+  const st = srMeshStats(repr);
+  if (st.parts && st.finite && st.v > 0) {
+    SRF.ref = { atoms: atoms, ref_v: st.v, ref_diag: st.diag };
+  }
+}
+function srAlive(proxy) {
+  if (!proxy) return false;
+  let alive = false;
+  A.comp && A.comp.eachRepresentation(r => { if (r === proxy) alive = true; });
+  return alive;
+}
+function srRetire(slot) {
+  // removeRepresentation -> repr.dispose -> molsurf.dispose (terminates the
+  // msms worker) + clear() (viewer.remove + buffer.dispose frees the GPU
+  // mesh). Idempotent; the prepare guard makes an already-queued make() of
+  // a retired slot a silent no-op.
+  if (!slot || slot.dead) return;
+  slot.dead = true;
+  try { if (A.comp && slot.proxy) A.comp.removeRepresentation(slot.proxy); }
+  catch (e) {}
+  slot.proxy = null; slot.repr = null;
+}
+function srRetireLater(slot) {
+  // Keep the OLD front on screen until the NEW one has actually been
+  // rendered once (viewer.signals.rendered), then dispose. The timeout is
+  // only a safety net for a stalled render loop.
+  let fired = false;
+  const sig = window.__stage && window.__stage.viewer &&
+              window.__stage.viewer.signals &&
+              window.__stage.viewer.signals.rendered;
+  const done = () => {
+    if (fired) return;
+    fired = true;
+    if (sig) { try { sig.remove(done); } catch (e) {} }
+    srRetire(slot);
+  };
+  if (sig) sig.add(done);
+  setTimeout(done, 250);
+}
+function srStartBuild(t) {
+  const gen = SRF.gen;
+  let proxy = null;
+  try {
+    proxy = A.comp.addRepresentation('surface', surfaceParams(t.quality));
+  } catch (e) {
+    setStatus('Surface build failed: ' + e, true); return;
+  }
+  const repr = proxy && proxy.repr;
+  const slot = { proxy, repr, frame: A.frame, quality: t.quality,
+                 exact: t.exact, t0: performance.now(), gen, dead: false,
+                 sele: repr && repr.selection
+                       ? repr.selection.string : proteinRepSel() };
+  SRF.back = slot;
+  if (repr) {
+    // Two safeguards, both scoped to reprs created HERE (Gaussian and every
+    // other rep never passes through):
+    //  * Truthful labelling: prepareData transfers the CURRENT structure
+    //    coordinates inside prepare, so re-stamping slot.frame here records
+    //    exactly which frame this mesh will represent — even if playback
+    //    moved on in the same tick.
+    //  * Dispose-safety: addRepresentation queues the first make() through
+    //    the repr's own task queue (a plain setTimeout) and kill() cannot
+    //    cancel an already-dispatched run; if the slot was retired in the
+    //    meantime the queued make would dereference the freed structureView
+    //    ("getSize of undefined"). make resolves this.prepare at CALL time,
+    //    so this instance guard is airtight: a dead slot silently never
+    //    starts — no worker, no throw, no half-touched viewer.
+    const self = repr;
+    const orig = repr.prepare.bind(repr);
+    repr.prepare = function (cb) {
+      if (slot.dead || self.disposed || SRF.gen !== gen) return;
+      slot.frame = A.frame;      // the instant the coordinates get read
+      return orig(cb);
+    };
+    // Block NGL's automatic position refresh on OUR surface reprs. Every
+    // trajectory frame ends in structure.updatePosition -> refreshed ->
+    // component.updateRepresentations({position:true}) -> repr.update(),
+    // and SurfaceRepr answers a position change with __forceNewMolsurf +
+    // build() — which CLEARS the buffers first (blank screen) and leaves
+    // the mesh empty until its own worker returns. Left alone, the visible
+    // front would self-destruct on every playback tick (exactly the
+    // flicker being fixed, through the side door) and the back would be
+    // rebuilt against newer coordinates mid-flight. This pipeline is
+    // scheduler-driven: geometry changes only via srPump/srSwapIn. Cartoon,
+    // ligand/ion/water reps and Gaussian keep their normal position
+    // updates — only reprs created here are shadowed.
+    repr.update = function () {};
+    // Same reasoning for Component.setSelection() (issued by a view/mode
+    // switch BEFORE srBegin): forwarding it would fire stringChanged ->
+    // build() on the live front (buffer-clear -> blank) for a selection
+    // whose reps srBegin replaces with fresh builds anyway. The slot is
+    // replaced wholesale; a selection change never mutates it in place.
+    repr.setSelection = function () { return self; };
+  }
+  A.surfaceBuildFrame = slot.frame;
+  srTickTimer(true);
+}
+function srSyncBusy() {
+  A.surfaceBusy = !!(SRF.back || SRF.target);
+  A.surfaceBuildFrame = SRF.back ? SRF.back.frame : -1;
+}
+function srPump() {
+  if (A.rep !== 'surface' || !A.comp) return;
+  if (SRF.back) { srSyncBusy(); return; }     // one build at a time
+  if (!SRF.target) { srTickTimer(false); srSyncBusy(); return; }
+  const t = SRF.target; SRF.target = null;
+  srStartBuild(t);
+  srSyncBusy();
+}
+// (Re)point the pipeline at `frame`. exact=true marks a user-selected
+// frame (pause/slider/step) whose surface must land precisely.
+function srRequest(frame, exact) {
+  if (A.rep !== 'surface' || !A.comp) return;
+  const q = srQuality();
+  A.surfaceRequestedFrame = frame;
+  window.__surfaceRequestedFrame = frame;
+  // dedupe: an identical request already pending (or already building,
+  // still queued-free) needs no second build
+  const b = SRF.back;
+  if (b && b.frame === frame && b.quality === q &&
+      (!SRF.target || (SRF.target.frame === frame &&
+                       SRF.target.quality === q))) {
+    if (!SRF.target) return;
+    SRF.target = null;                 // identical to the in-flight build
+  }
+  const stale = SRF.target && SRF.target.frame !== frame;
+  SRF.target = { frame: frame, quality: q, exact: !!exact };
+  // Supersession of a pending PLAY target is the scheduler working as
+  // designed; a pending exact target being replaced is just the user
+  // moving, and is not counted as a dropped surface frame.
+  if (stale && A.playing) SRF.dropped += 1;
+  srPump();
+}
+// Full (re)start of the pipeline: current selection / colour / opacity.
+// The FRONT rep is kept visible while the fresh build runs — and retired
+// only if its atom selection no longer matches (a selection change makes
+// the old geometry wrong; a colour/opacity change merely delays the new
+// look by one build instead of blanking the screen).
+function srBegin() {
+  srRetire(SRF.back); SRF.back = null;
+  const f = SRF.front;
+  SRF.front = null;
+  SRF.target = null; SRF.gen += 1;
+  srTickTimer(false);
+  if (A.rep !== 'surface') {
+    srRetire(f); A.surfaceBusy = false; return;
+  }
+  // Keep the old front visible while the fresh build runs — including on a
+  // selection change: a Cα->Full hop shows the previous mesh for one build
+  // cycle rather than a blank gap (visibleSurfaceCount >= 1 is absolute).
+  // slot.sele is captured at creation for diagnostics; retirement happens
+  // on the swap-in (srRetireLater), never before the replacement is up.
+  if (f && f.repr && !f.repr.disposed) {
+    SRF.front = f;
+  } else {
+    srRetire(f);
+  }
+  srRequest(A.frame >= 0 ? A.frame : 0, !A.playing);
+}
+function applySurfaceQuality() {
+  if (A.rep !== 'surface') return;
+  // quality flip on the settled frame; during Play the coarse preset also
+  // takes effect on the NEXT live frame automatically, so only the paused
+  // refine needs an explicit exact request.
+  srRequest(A.frame, !A.playing);
+}
+function srTickTimer(on) {
+  if (on && !SRF.timer) SRF.timer = setInterval(srTick, 50);
+  if (!on && SRF.timer) { clearInterval(SRF.timer); SRF.timer = null; }
+}
+function srReady(repr) {
+  const l = repr && repr.__infoList;
+  return !!(l && l.length && l.every(i => i && i.surface &&
+                                     i.surface.getPosition().length > 0) &&
+            repr.bufferList && repr.bufferList.length > 0 && !repr.disposed);
+}
+function srMeshFingerprint(repr) {
+  try {
+    const p = repr.__infoList[0].surface.getPosition();
+    let h = 0, v = p.length / 3;
+    for (let i = 0; i < p.length; i += 211) h = (h * 31 + (p[i] * 100 | 0)) >>> 0;
+    return { v: v, h: h };
+  } catch (e) { return { v: 0, h: 0 }; }
+}
+function srSwapIn(slot) {
+  const old = SRF.front;
+  SRF.front = slot; SRF.back = null;
+  // SHOW FIRST, then confirm a rendered frame, THEN remove the old one.
+  slot.proxy.setVisibility(true);
+  if (window.__stage) window.__stage.viewer.requestRender();
+  SRF.displayed = slot.frame;
+  A.surfaceDisplayedFrame = A.surfaceRenderedFrame = SRF.displayed;
+  window.__surfaceRenderedFrame = SRF.displayed;
+  // display log: one entry per mesh that actually BECAME VISIBLE, stamped
+  // at display time with build duration + vertex fingerprint (proves real
+  // per-frame regeneration without racing settle windows).
+  const fp = srMeshFingerprint(slot.repr);
+  const st = srMeshStats(slot.repr);
+  const bm = Math.round(performance.now() - slot.t0);
+  SRF.builds.push(bm); if (SRF.builds.length > 200) SRF.builds.shift();
+  let sAtoms = 0;
+  try { sAtoms = slot.repr.structureView ? slot.repr.structureView.atomCount : 0; }
+  catch (e) {}
+  (window.__surfaceLog = window.__surfaceLog || []).push(
+    { f: SRF.displayed, v: fp.v, h: fp.h, t: Math.round(performance.now()),
+      bm: bm, tri: Math.round(st.tris), diag: +st.diag.toFixed(1),
+      atoms: sAtoms, q: slot.quality });
+  if (window.__surfaceLog.length > 500) window.__surfaceLog.shift();
+  if (old) srRetireLater(old);
+}
+// Release every surface pipeline resource (rep switch away, teardown).
+// Proxies removed here if still attached; dead slots' wrapped prepare is a
+// no-op, so nothing can appear after this point.
+function srCleanup() {
+  srRetire(SRF.back); SRF.back = null;
+  srRetire(SRF.front); SRF.front = null;
+  SRF.target = null; SRF.gen += 1;
+  A.surfaceBusy = false;
+  A.surfaceDisplayedFrame = -1; A.surfaceRenderedFrame = -1;
+  A.surfaceBuildFrame = -1;
+  srTickTimer(false);
+}
+function srTick() {
+  if (A.rep !== 'surface') { srCleanup(); return; }
+  const b = SRF.back;
+  if (!b) { srPump(); return; }
+  if (!b.repr || b.repr.disposed || !srAlive(b.proxy)) {   // externally removed
+    SRF.back = null; srPump(); return;
+  }
+  if (srReady(b.repr)) {
+    const t = SRF.target;
+    const superseded = t && t.exact &&
+      (t.frame !== b.frame || t.quality !== b.quality || !b.exact);
+    if (superseded) {
+      // a definitive paused/manual selection moved on: keep the FRONT
+      // visible and build the exact target instead of displaying this.
+      srRetire(b); SRF.back = null; srPump(); return;
+    }
+    // ---- COMPLETENESS GATE (the fragmented-surface fix) --------------
+    // srReady only proves a surface object exists with >0 verts. msms can
+    // return a COMPLETE-but-degenerate fragment (a coarse-grid collapse), so
+    // a mesh is displayed ONLY if it wraps the whole protein selection. A
+    // rejected candidate never touches the visible front: it is discarded
+    // and the newest requested frame is scheduled instead.
+    let atoms = 0;
+    try { atoms = b.repr.structureView ? b.repr.structureView.atomCount : 0; }
+    catch (e) {}
+    const v = srValidate(b.repr, atoms);
+    if (!v.ok) {
+      console.warn('surface rejected (incomplete):', v.why,
+                   'v=' + v.st.v, 'diag=' + v.st.diag.toFixed(1),
+                   'q=' + b.quality, 'f=' + b.frame);
+      SRF.rejected = (SRF.rejected || 0) + 1;
+      // If a coarse PLAY grid degenerated for this selection, retry at a
+      // finer grid (bounded ladder 0.9 -> 1.0). srQuality now encodes the
+      // sf, so bumping it re-labels the target and forces a fresh build.
+      // When the mesh is already at the finest play grid there is nothing
+      // left to escalate: we deliberately do NOT re-request the same frame
+      // (that would spin build->reject forever). Playback's next
+      // frameChanged calls srRequest anyway; the front stays visible.
+      let escalated = false;
+      if (b.quality.indexOf('play') === 0 && v.why !== 'mesh empty/nonfinite' &&
+          A.surfPlaySF < 1) {
+        A.surfPlaySF = Math.min(1, A.surfPlaySF + 0.05);
+        SRF.target = null;   // a pending target still carries the OLD sf tag
+        escalated = true;
+      }
+      srRetire(b); SRF.back = null;
+      if (escalated && !SRF.target) srRequest(A.frame, !A.playing);
+      srPump();
+      return;
+    }
+    // validated: pause-quality meshes set the yardstick the play meshes
+    // are measured against (same selection, full-quality reference).
+    if (b.quality === 'pause') srCaptureRef(b.repr, atoms);
+    const fr = SRF.front;
+    if (fr && fr.frame === b.frame && fr.quality === b.quality) {
+      // prepare stamped this build with a frame that playback reached
+      // before its coordinates were read; the front already shows exactly
+      // that mesh at that quality -> re-displaying would be a no-op swap.
+      srRetire(b); SRF.back = null; srPump(); return;
+    }
+    srSwapIn(b);
+    srPump();                       // latest target (if any) builds next
+    return;
+  }
+  // Honest escape hatch: a paused-quality Full-atoms msms build on a slow
+  // client legitimately takes tens of seconds; anything past 90 s is hung.
+  // The stale mesh stays visible, displayedFrame is NOT mislabelled.
+  if (performance.now() - b.t0 > 90000) {
+    console.warn('surface build timed out at frame', b.frame);
+    srRetire(b); SRF.back = null;
+    SRF.target = null; srTickTimer(false); srSyncBusy();
+  }
+}
+// ---- Surface read-only introspection (tests/harness) -----------------
+window.__surfaceStats = () => {
+  const b = SRF.builds;
+  const avg = b.length ? b.reduce((s, x) => s + x, 0) / b.length : 0;
+  return { requested: A.surfaceRequestedFrame,
+           building: SRF.back ? SRF.back.frame : null,
+           displayed: SRF.front ? SRF.front.frame : -1,
+           pending: SRF.target ? SRF.target.frame : null,
+           frontVisible: !!(SRF.front && SRF.front.proxy &&
+                            SRF.front.proxy.repr.visible),
+           dropped: SRF.dropped, buildAvgMs: Math.round(avg),
+           buildMaxMs: b.length ? Math.max.apply(null, b) : 0,
+           rejected: SRF.rejected || 0,
+           ref: SRF.ref ? { atoms: SRF.ref.atoms, v: SRF.ref.ref_v,
+                            diag: +SRF.ref.ref_diag.toFixed(1) } : null,
+           playSF: A.surfPlaySF };
+};
+// Component reps are created ONCE per residue type; toggling flips
+// visibility (no GPU rebuild). In Cα/Backbone modes the *streamed selection*
+// follows visibility, so hidden components are also never transferred.
+// setSelection() on the component can rebuild proxies, so proxies are
+// validated on every access via eachRepresentation and re-created when
+// missing. The representation style comes from the component metadata
+// (sphere for single-atom ions, ball+stick for ligands/unknowns, point for
+// water) — never from a hard-coded per-project table.
+const compProxies = {};
+const COMP_REP = { sphere: 'spacefill', 'ball+stick': 'ball+stick',
+                   line: 'line', point: 'point' };
+// ---- ligand / cofactor colours: per-atom ELEMENT ----
+// Every automatically detected non-polymer multi-atom component (GTP, GDP,
+// ATP, IXW, … — name-agnostic, driven purely by the atom's chemical element)
+// renders CPK-style: C green (as requested), H white, N blue, O red, P
+// orange, S yellow, Mg/other elements standard hues. Ions and water keep
+// their existing representation and colour. The protein's colour mode never
+// reaches these reps (separate NGL representations), so changing the
+// protein colour cannot recolour ligands.
+// This NGL bundle keys user colormakers by 'uuid|name' — addScheme RETURNS
+// the usable key; the name alone is not resolvable (verified against the
+// bundled build), so the returned key is what we pass as colorScheme.
+const ELEM_HEX = {
+  H: 0xffffff, C: 0x33cc33, N: 0x3050f8, O: 0xff0d0d, F: 0x90e050,
+  P: 0xff8000, S: 0xffff30, CL: 0x1ff01f, BR: 0xa62929, I: 0x940094,
+  MG: 0x8aff00, NA: 0xab5cf2, K: 0x8f40d4, CA: 0x3dff00, ZN: 0x7d80b0,
+  FE: 0xe06633, MN: 0x9c7ac7, CU: 0xc88033, NI: 0x8d9900, CO: 0xf090a0,
+  _: 0xcccccc,
+};
+let LIG_ELEMENT_SCHEME = null;
+try {
+  LIG_ELEMENT_SCHEME = NGL.ColormakerRegistry.addScheme(function () {
+    this.atomColor = function (pa) {
+      var el = String((pa && pa.element) || '').toUpperCase();
+      return ELEM_HEX[el] !== undefined ? ELEM_HEX[el] : ELEM_HEX._;
+    };
+  }, 'mtv-element');
+} catch (e) { console.warn('ligand element colour scheme unavailable:', e); }
+function compRepParams(c) {
+  const p = { sele: compSele(c), color: c.color, visibility: c.el.checked };
+  if (LIG_ELEMENT_SCHEME && (c.category === 'ligand' || c.category === 'other')) {
+    p.colorScheme = LIG_ELEMENT_SCHEME;   // element colour, not server colour
+    delete p.color;
+  }
+  return p;
+}
+function compSele(c) {
+  if (isSeleSafe(c.resname)) return '[' + c.resname + ']';
+  // Pathological name (whitespace/brackets inside the residue name): the
+  // grammar cannot express it, so select its atoms by index. '@' tokens
+  // take comma-separated indices (no ranges); one scan of the structure
+  // collects them. Absent from the current (mode-filtered) structure ->
+  // '[]', which simply matches nothing.
+  const st = A.comp.structure;
+  const ids = [];
+  st.eachAtom(a => { if (a.resname === c.resname) ids.push(a.index); });
+  if (!ids.length) return '[]';
+  if (ids.length > 100000) {
+    console.warn('component ' + c.resname + ' too large for index selector');
+    ids.length = 100000;
+  }
+  return '@' + ids.join(',');
+}
+function ensureCompReps() {
+  const live = new Set();
+  A.comp.eachRepresentation(r => {
+    if (r.__mtvComp) live.add(r.__mtvComp);
+  });
+  for (const c of CMP) {
+    if (c.polymer) continue;               // cartoon/body rep covers those
+    if (!compProxies[c.resname] || !live.has(c.resname)) {
+      const p = compRepParams(c);
+      if (c.representation === 'sphere') p.radiusScale = c.radius_scale || 2.4;
+      const proxy = A.comp.addRepresentation(
+        COMP_REP[c.representation] || 'ball+stick', p);
+      proxy.__mtvComp = c.resname;
+      compProxies[c.resname] = proxy;
+    } else {
+      compProxies[c.resname].setParameters({ visibility: c.el.checked });
+    }
+  }
+}
+function destroyCompReps() {
+  A.comp.eachRepresentation(r => {
+    if (r.__mtvComp) A.comp.removeRepresentation(r);
+  });
+  for (const k of Object.keys(compProxies)) compProxies[k] = null;
+}
+// Debounced refresh of the *streamed* selection after a component toggle:
+// visibility flips instantly (cheap), and the selection re-issue — which is
+// heavy (component rebuild) — runs after the user settles, and only if no
+// mode switch (which rebuilds the selection anyway with current visibility)
+// cancels it first.
+let selDebounce = null;
+function onCompToggle() {
+  ensureCompReps();                        // instant visibility
+  if (A.view === 'full') return;           // full mode always streams all
+  if (selDebounce) clearTimeout(selDebounce);
+  selDebounce = setTimeout(() => {
+    selDebounce = null;
+    applyViewSelection();                  // hidden atoms stop transferring
+  }, 2500);
+}
+
+// ---- frame cache (client) ----------------------------------------
+// NGL never evicts its own frame cache; we bound it by BYTES, anchored
+// around the play direction: keep the current frame plus the prefetch
+// window ahead of it, drop everything older/farther.
+const CACHE_BYTES = 160 * 1024 * 1024;     // per-mode bound (~180 CA frames)
+function cacheBytes(traj) {
+  let b = 0;
+  for (const k in traj.frameCache) b += traj.frameCache[k].byteLength || 0;
+  return b;
+}
+function evictCache(traj) {
+  const fc = traj.frameCache, cur = traj.currentFrame;
+  const keys = Object.keys(fc).map(Number);
+  if (cacheBytes(traj) <= CACHE_BYTES) return;
+  // delete from the back (lowest index) upward — playback moves forward,
+  // and the current frame + forward window survive.
+  keys.sort((a, b) => a - b);
+  for (const k of keys) {
+    if (cacheBytes(traj) <= CACHE_BYTES) break;
+    if (k === cur || (k > cur && k <= cur + prefetchSpan())) continue;
+    delete fc[k]; delete traj.boxCache[k]; traj.frameCacheSize -= 1;
+  }
+}
+
+// ---- prefetch -----------------------------------------------------
+function prefetchSpan() {
+  // Look-ahead window in FRAMES (step-adjusted). Bounded by memory: full
+  // frames are 8.6 MB each, so full mode keeps a smaller window.
+  if (A.view === 'full') return Math.min(8, 3 + 2 * A.step);
+  return Math.min(16, Math.max(5, Math.round(8 * A.step)));
+}
+function prefetchNext() {
+  if (!A.traj || A.traj.inProgress || A.pending) return;
+  const span = prefetchSpan();
+  const list = [];
+  for (let d = A.step; d <= span * A.step; d += A.step) {
+    let f = A.frame + d;
+    if (f >= A.frameCount) { if (!A.loop) break; f %= A.frameCount; }
+    if (!A.traj.frameCache[f] && !A.traj.loadQueue[f]) list.push(f);
+    if (list.length >= 3) break;              // small parallel fan-out
+  }
+  if (list.length) {
+    // NGL's loadFrame ignores the callback for array input, so issue
+    // individually. Chain: when this batch lands, fill the rest of the
+    // window (empty list => window already full => chain stops).
+    A.pending = list.length;
+    for (const f of list) A.traj.loadFrame(f, () => {
+      A.pending -= 1;
+      if (A.pending === 0) setTimeout(prefetchNext, 0);
+    });
+  }
+}
+// ---- stuck-request watchdog ---------------------------------------
+// NGL's frame XHR has no status/error handling: a failed request (network
+// blip, server restart -> stale token -> 422) throws inside its load
+// handler, the callback never runs, and `inProgress` sticks true, freezing
+// playback silently. If the same request sits inflight for >8 s, clear
+// NGL's load queue flags, drop all cached tokens (they are the likely
+// culprit after a server restart), and re-issue the current frame — which
+// then re-POSTs the full atom-range body and re-learns a fresh token.
+(function () {
+  let sig = '', stuckSince = 0;
+  setInterval(() => {
+    const t = A.traj;
+    if (!t) return;
+    const busy = t.inProgress || A.pending > 0;
+    if (!busy) { sig = ''; return; }
+    const s = Object.keys(t.loadQueue || {}).sort().join(',') + '|' + A.pending;
+    if (s !== sig) { sig = s; stuckSince = performance.now(); return; }
+    // Threshold must stay above the worst legitimate block on slow
+    // (software-WebGL) clients: a heavy rep rebuild can freeze the main
+    // thread for tens of seconds while load events queue up.
+    if (performance.now() - stuckSince < 20000) return;
+    console.warn('frame request stalled — resetting loader state');
+    for (const k of Object.keys(t.loadQueue || {})) delete t.loadQueue[k];
+    t.inProgress = false;
+    A.pending = 0;
+    if (A.frameRetry) { clearInterval(A.frameRetry); A.frameRetry = null; }
+    window.__selTok = {};                    // force re-learn of tokens
+    sig = '';
+    // Re-issue only if the current frame is genuinely missing; if it is
+    // already cached, its update is merely queued behind slow rendering.
+    if (A.ready && !t.frameCache[A.frame]) requestFrame(A.frame);
+  }, 2000);
+})();
+
+// Real trajectory times when the server told us the first frame's time and
+// the spacing; both come from the XTC itself (never assumed).
+const timeOf = f => (META.first_time_ns + f * DELTA_NS);
+const fmtNs = v => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+
+function onCount() {
+  A.frameCount = A.traj.frameCount;
+  const tl = document.getElementById('timeline');
+  tl.max = Math.max(0, A.frameCount - 1);
+  document.getElementById('info-pill').textContent = A.frameCount + ' frames';
+  document.getElementById('i-frames').textContent = A.frameCount.toLocaleString();
+  document.getElementById('i-time').textContent =
+    fmtNs(META.first_time_ns) + ' → ' +
+    fmtNs(timeOf(Math.max(0, A.frameCount - 1))) + ' ns';
+  const lf = document.getElementById('legend-frames');
+  if (lf) lf.textContent = A.frameCount.toLocaleString();
+}
+function onFrame(f) {
+  A.frame = f;
+  document.getElementById('timeline').value = f;
+  document.getElementById('frameno').textContent =
+    'frame ' + f + ' / ' + (A.frameCount - 1);
+  document.getElementById('timeno').textContent = fmtNs(timeOf(f));
+  evictCache(A.traj);
+  const now = performance.now();
+  A.frameStamps.push(now);
+  while (A.frameStamps.length > 10) A.frameStamps.shift();
+  if (A.frameStamps.length >= 3) {
+    const dt = (A.frameStamps.at(-1) - A.frameStamps[0]) / 1000;
+    document.getElementById('fpsnow').textContent =
+      ((A.frameStamps.length - 1) / dt).toFixed(1);
+  }
+  prefetchNext();
+  SelUI.onFrame(f);                               // selection overlay animation
+                                                  // (+ dynamic re-evaluation)
+  if (A.rep === 'gsurf') GaussSurf.onFrame(f);   // re-mesh at the new coords
+  // frameChanged fires only after _updateStructure applied this frame's
+  // coordinates. Feed the surface pipeline: while playing this is the
+  // latest-frame-wins request (a busy builder overwrites the single pending
+  // slot); paused it is the authoritative coordinates for whatever exact
+  // frame the user selected (slider / jump / step all land here).
+  if (A.rep === 'surface') srRequest(f, !A.playing);
+}
+
+// ---- playback -----------------------------------------------------
+function requestFrame(f) {
+  if (!A.traj) return;
+  f = Math.max(0, Math.min(A.frameCount - 1, f));
+  A.wantFrame = f;
+  const t = A.traj;
+  // NGL race: setFrame() latches inProgress=true and then delegates to
+  // loadFrame(), which SILENTLY drops the callback when the frame is
+  // already in flight from a prefetch request — _updateStructure never
+  // runs and playback deadlocks (big Full-mode frames hit this constantly;
+  // the 20 s watchdog is the only recovery). If the frame is mid-prefetch,
+  // just wait for its load callback to fill the cache, then apply.
+  if (t.loadQueue && t.loadQueue[f] && !t.frameCache[f]) {
+    if (!A.frameRetry) A.frameRetry = setInterval(() => {
+      if (A.wantFrame == null) return;
+      const w = A.wantFrame;
+      if (t.frameCache[w] || !t.loadQueue || !t.loadQueue[w]) {
+        clearInterval(A.frameRetry); A.frameRetry = null;
+        requestFrame(w);
+      }
+    }, 60);
+    return;
+  }
+  t.setFrame(f);
+}
+function play() {
+  if (!A.traj || A.playing || !A.frameCount) return;
+  A.playing = true;
+  if (A.rep === 'gsurf') GaussSurf.setPlaying(true);
+  if (A.rep === 'surface') applySurfaceQuality();  // coarse grid while playing
+  document.getElementById('playpause').textContent = '⏸ Pause';
+  clearInterval(A.timer);
+  A.timer = setInterval(step, Math.round(1000 / A.fps));
+}
+function step() {
+  if (!A.traj) return;
+  if (A.traj.inProgress) return;             // network-limited; skip this tick
+  // Surface no longer throttles the trajectory. The double-buffered pipeline
+  // (srRequest/srPump) runs one msms build at a time and, whenever playback
+  // outruns it, overwrites the single pending target with the newest frame
+  // (latest-frame-wins). So the trajectory advances at its requested rate and
+  // the SURFACE samples it as fast as msms can build — displayed frames go
+  // 100 -> 104 -> 108 instead of queueing every intermediate mesh. The old
+  // "skip the tick while a surface build is busy" gate tied trajectory FPS
+  // to surface FPS and forced a full build for every frame.
+  // Playback frame step: show every Nth frame while playing. Manual
+  // stepping / slider / jump always use step 1 (every original frame).
+  let f = A.frame + A.step;
+  if (f > A.frameCount - 1) {
+    if (A.loop) f = f % A.frameCount;
+    else { requestFrame(A.frameCount - 1); pause(); return; }
+  }
+  requestFrame(f);
+}
+function pause() {
+  A.playing = false;
+  if (A.rep === 'gsurf') GaussSurf.setPlaying(false);   // refine to full quality
+  if (A.rep === 'surface') applySurfaceQuality();       // refine to inspection grid
+  document.getElementById('playpause').textContent = '▶ Play';
+  clearInterval(A.timer); A.timer = null;
+}
+// Re-arm the ticking interval at the current A.fps WITHOUT touching the
+// playing/paused state. Changing the speed while playing must keep playing
+// at the new period; play() alone can't do this — it early-returns when
+// already playing, so the old interval used to survive at the old FPS (the
+// "Custom fps does nothing while playing" bug). Paused: no-op.
+function rearmPlayTimer() {
+  if (!A.playing) return;
+  clearInterval(A.timer);
+  A.timer = setInterval(step, Math.round(1000 / A.fps));
+}
+
+// ---- view (playback detail) mode ----------------------------------
+let appliedSel = null;
+function applyViewSelection() {
+  // Re-issue the component selection for the current mode + ligand
+  // visibility, without recreating the trajectory. NGL re-streams only the
+  // newly-selected atom ranges; reps are rebuilt once per switch (not per
+  // frame) because their atom sets changed. No-op when the selection is
+  // unchanged (e.g. toggling a ligand that was not in the stream anyway).
+  const sel = viewSele(A.view);
+  if (sel === appliedSel) return;
+  appliedSel = sel;
+  window.__curSel = sel;                     // for token capture in the XHR hook
+  A.comp.setSelection(sel);
+  destroyCompReps();
+  rebuildProteinRep();
+  ensureCompReps();
+  // The streamed coordinate domain changed (mode / component set): refresh or
+  // re-evaluate the selection overlay against the new set of live-coord atoms.
+  SelUI.onViewChange();
+  // The Gaussian surface density source changed with the streamed selection
+  if (A.rep === 'gsurf') { GaussSurf.rescan(false); GaussSurf.armRecenter(); }
+  requestFrame(A.frame >= 0 ? A.frame : 0);
+}
+
+// ---- project configuration ----------------------------------------
+// Everything project-specific arrives from the server: display name,
+// description, atom/frame counts, real frame spacing, and the ligand list
+// that becomes the toggle row. No filesystem paths are ever sent.
+async function configure() {
+  const r = await fetch(BASE + 'api/project', { cache: 'no-store' });
+  if (!r.ok) throw new Error('project ' + (r.status === 404 ? 'not found'
+                                                          : 'unavailable'));
+  META = await r.json();
+  if (META.first_time_ns == null) META.first_time_ns = 0;
+  if (META.frame_interval_ps) DELTA_NS = META.frame_interval_ps / 1000;
+  document.getElementById('i-files').textContent =
+    'files: ' + (META.gro_filename || '–') + ' + ' + (META.xtc_filename || '–');
+  document.title = META.name + ' — MD Viewer';
+  document.getElementById('title').textContent = META.name;
+  document.getElementById('subtitle').textContent = META.description ||
+    'streamed frame-by-frame from the server (the trajectory itself never ' +
+    'leaves it)';
+
+  // Temporary folder views offer Save-to-Library: registers the SAME files
+  // as a permanent entry (nothing is copied) and gives a stable URL.
+  if (META.temp) {
+    const save = document.getElementById('save-to-library');
+    save.hidden = false;
+    save.addEventListener('click', async ev => {
+      ev.preventDefault();
+      const guess = (META.gro_filename || 'sim').replace(/\.gro$/i, '') +
+                    ' / ' + (META.xtc_filename || 'traj').replace(/\.xtc$/i, '');
+      const name = prompt('Save this trajectory to the library as:', guess);
+      if (!name) return;
+      save.textContent = 'saving…';
+      try {
+        const r = await fetch('/api/session/' + encodeURIComponent(PID) +
+                              '/save', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name}),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.description || r.status);
+        location.href = '/';
+      } catch (e) {
+        save.textContent = 'save failed: ' + (e.message || e);
+      }
+    });
+  }
+
+  const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-US'));
+  document.getElementById('legend-atoms').textContent = fmt(META.atoms);
+  document.getElementById('i-atoms').textContent = fmt(META.atoms);
+  document.getElementById('i-frames').textContent = fmt(META.frames);
+  document.getElementById('i-interval').textContent =
+    META.frame_interval_ps == null ? '–' : META.frame_interval_ps + ' ps';
+  const lf = document.getElementById('legend-frames');
+  if (lf && META.frames != null) lf.textContent = fmt(META.frames);
+  if (META.frames != null)
+    document.getElementById('info-pill').textContent =
+      fmt(META.frames) + ' frames';
+  if (META.frames != null)
+    document.getElementById('i-time').textContent =
+      fmtNs(META.first_time_ns) + ' → ' +
+      fmtNs(timeOf(Math.max(0, META.frames - 1))) + ' ns';
+  buildCompUi();
+}
+
+// Checkboxes built from the project's AUTO-DISCOVERED component table
+// (0..n entries — a bare protein trajectory simply shows no such panel).
+// Grouped by category: ligands/cofactors, ions, water; polymer categories
+// are what the cartoon always shows and get no checkbox. Every component
+// keeps its server-assigned colour, representation and default visibility.
+function buildCompUi() {
+  const group = document.getElementById('compgroup');
+  const roll = document.getElementById('comproll');
+  CMP.length = 0;
+  const all = META.components || [];
+  const comps = all.filter(c =>
+    c.category !== 'protein' && c.category !== 'nucleic');
+  all.filter(c => c.category === 'protein' || c.category === 'nucleic')
+     .forEach(c => CMP.push(Object.assign({}, c, { polymer: true })));
+  group.hidden = comps.length === 0;
+  roll.innerHTML = '';
+  const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-US'));
+  const order = ['ligand', 'ion', 'water', 'other'];
+  const titles = { ligand: 'Ligands / cofactors', ions: 'Ions',
+                   ion: 'Ions', water: 'Water / solvent', other: 'Other' };
+  const byCat = {};
+  for (const c of comps) {
+    const cat = titles[c.category] ? c.category : 'other';
+    (byCat[cat] = byCat[cat] || []).push(c);
+  }
+  let bulkShown = false;
+  for (const cat of order) {
+    const list = byCat[cat];
+    if (!list || !list.length) continue;
+    const head = document.createElement('div');
+    head.className = 'compcat';
+    head.textContent = titles[cat];
+    roll.appendChild(head);
+    for (const s of list) {
+      const lab = document.createElement('label');
+      lab.className = 'chk compchk';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = !!s.visible;
+      cb.id = 'lig-' + s.resname;    // stable handle for automation/debugging
+      cb.addEventListener('change', onCompToggle);
+      lab.appendChild(cb);
+      const sw = document.createElement('span');
+      sw.className = 'chip';
+      sw.style.background = s.color || '#fff';
+      lab.appendChild(sw);
+      const txt = document.createElement('span');
+      txt.textContent = (s.label || s.resname);
+      if (s.atoms != null) {
+        txt.textContent += ' — ' + fmt(s.atoms) + (s.bulk ? ' atoms ⚠' : ' atoms');
+      }
+      if (!s.recognized) txt.title = 'non-standard residue (auto-detected)';
+      lab.appendChild(txt);
+      roll.appendChild(lab);
+      CMP.push(Object.assign({}, s, { el: cb, polymer: false }));
+      if (s.bulk && !s.visible && !bulkShown) bulkShown = true;
+    }
+  }
+  document.getElementById('complegend').textContent = comps.length
+    ? 'Ticked components are part of the streamed selection in Cα/Backbone ' +
+      'mode; unticked ones are never transferred. Full atoms always shows ' +
+      'everything.'
+    : '';
+  document.getElementById('bulkwarn').textContent = bulkShown
+    ? '⚠ Components flagged with a large atom count add a lot of data per ' +
+      'frame — enabling them slows playback noticeably.'
+    : '';
+}
+
+// ---- boot ---------------------------------------------------------
+async function boot() {
+  await configure();
+  // Default mode: Cα (Fast) — it is substantially faster to stream and
+  // update. Full atoms remain one click away for detailed inspection.
+  setStatus('Loading structure — ' +
+    (META.atoms ? META.atoms.toLocaleString('en-US') : '…') +
+    ' atoms; parsing + bond perception takes ~30–60 s…');
+  window.__curSel = viewSele(A.view);
+  appliedSel = window.__curSel;
+  const comp = await stage.loadFile(GRO_URL, { ext:'gro', sele: window.__curSel, defaultAssembly:'' });
+  A.comp = comp;
+
+  comp.removeAllRepresentations();
+  rebuildProteinRep();
+  ensureCompReps();
+
+  const trajw = comp.addTrajectory(TRAJ_URL, {
+    deltaTime: DELTA_NS, timeOffset: 0,
+    centerPbc:false, removePeriodicity:false, removePbc:false,
+    superpose:false, initialFrame:0,
+  });
+  A.trajw = trajw; A.traj = trajw.trajectory;
+
+  A.traj.signals.countChanged.add(() => { onCount(); setStatus('Ready — ' +
+    A.frameCount.toLocaleString() + ' frames (' + fmtNs(META.first_time_ns) +
+    '–' + fmtNs(timeOf(Math.max(0, A.frameCount - 1))) + ' ns).'); });
+  A.traj.signals.frameChanged.add(onFrame);
+
+  A.ready = true;
+  setTimeout(() => comp.autoView(1000), 400);
+}
+
+// ---- gaussian surface ---------------------------------------------
+GaussSurf.attach(stage, () => A, () => META, d => {
+  const el = $('gsurfms');
+  if (!el) return;
+  // one line per concern: how big the mesh is / how long it took, and what
+  // fed it (atom count + whether the mesh really spans the input)
+  const ext = b => b ? (+b[3] - +b[0]).toFixed(0) + '×' +
+                          (+b[4] - +b[1]).toFixed(0) + '×' +
+                          (+b[5] - +b[2]).toFixed(0) : '–';
+  const spanTxt = d.splatBox && d.meshBox
+    ? (ext(d.meshBox) !== '–' && ext(d.splatBox) !== '–' ?
+       'spans ' + ext(d.splatBox) + '→' + ext(d.meshBox) + ' Å' : '')
+    : '';
+  el.textContent =
+    'Gaussian mesh: ' + d.tris.toLocaleString() + ' tris / ' +
+    d.verts.toLocaleString() + ' verts · ' + d.ms.total.toFixed(0) + ' ms · ' +
+    (d.dims ? d.dims.join('×') : '–') + ' grid · ' + GaussSurf.qualityNow() +
+    ' · from ' + (d.nAtoms || 0).toLocaleString() + ' atoms' +
+    (d.splatUsed && d.splatUsed !== d.nAtoms
+      ? ' (' + d.splatUsed.toLocaleString() + ' splatted)' : '') +
+    (spanTxt ? ' · ' + spanTxt : '');
+  const au = $('gsurfauto');
+  if (au) au.textContent = GaussSurf.playing()
+    ? ' Auto-quality: COARSE while playing.' : '';
+});
+
+// ---- UI wiring ----------------------------------------------------
+const $ = id => document.getElementById(id);
+$('playpause').onclick = () => A.playing ? pause() : play();
+$('prev').onclick   = () => { pause(); requestFrame(A.frame - 1); };
+$('next').onclick   = () => { pause(); requestFrame(A.frame + 1); };
+$('toStart').onclick= () => { pause(); requestFrame(0); };
+$('toEnd').onclick  = () => { pause(); requestFrame(A.frameCount - 1); };
+$('timeline').oninput = e => { pause(); requestFrame(+e.target.value); };
+$('jump').onchange = e => { if (e.target.value !== '') { pause(); requestFrame(+e.target.value); } };
+
+// ---- FPS (presets + Custom) -----------------------------------------
+// The 1/2/4/8/15 presets are unchanged. Selecting Custom reveals a number
+// field (1–120, integer). Out-of-range numeric values clamp into 1–120
+// (field updated to match); blank / non-numeric keeps the last good value —
+// playback can never break. Preset change hides the field again.
+//
+// ONE resolved FPS source: getRequestedFps() maps the UI state (dropdown +
+// custom field) to the number used for timing, and A.fps is the resolved
+// copy that play()/rearmPlayTimer() consume — never two disconnected states.
+// Every change funnels through applyFpsUi(), which re-arms the interval only
+// when already playing: was-playing -> keeps playing at the new rate,
+// was-paused -> stays paused (the next Play() reads the new A.fps). Changing
+// speed never calls pause(). The "actual: X fps" readout in onFrame() is a
+// measurement of realized frame arrivals and is untouched — requested 50
+// with actual 13.2 is a valid, honest display.
+function customInt(input, min, max, fallback) {
+  const v = Math.round(+input.value);
+  if (input.value === '' || !Number.isFinite(v) || v < min || v > max) return fallback;
+  return v;
+}
+// Resolve the custom field to a USABLE fps: numeric-but-out-of-range values
+// clamp into 1–120 (0 -> 1, 999999 -> 120; the field itself is clamped too
+// so the user sees what was applied); blank / non-numeric keep the last
+// good value so the scheduler is never handed NaN.
+function clampCustomFps(input) {
+  const v = Math.round(+input.value);
+  if (input.value === '' || !Number.isFinite(v)) return A.fps || 4;
+  const c = Math.min(120, Math.max(1, v));
+  if (c !== v) input.value = String(c);
+  return c;
+}
+function getRequestedFps() {
+  if ($('speed').value === 'custom') return clampCustomFps($('speedcustom'));
+  const v = +$('speed').value;                     // preset 1/2/4/8/15
+  return Number.isFinite(v) && v > 0 ? v : 4;      // presets are trusted
+}
+function applyFpsUi() {
+  $('speedcustom').style.display =
+    $('speed').value === 'custom' ? '' : 'none';
+  A.fps = getRequestedFps();     // the ONLY scheduler input (play() reads it)
+  rearmPlayTimer();              // playing -> new period; paused -> no-op
+}
+$('speed').onchange = () => applyFpsUi();
+$('speedcustom').oninput = () => applyFpsUi();
+
+// ---- Playback step (presets + Custom) --------------------------------
+// Same shape. A.step drives Play only (see step()); slider / jump / prev /
+// next are untouched and always reach every original frame. Custom step is
+// 1 … frameCount.
+$('framestep').onchange = e => {
+  if (e.target.value === 'custom') {
+    $('stepcustom').style.display = '';
+    $('stepcustom').max = A.frameCount || 100000;
+    $('stepcustom').focus();
+    A.step = customInt($('stepcustom'), 1, A.frameCount || 1e9, A.step || 1);
+  } else {
+    $('stepcustom').style.display = 'none';
+    A.step = +e.target.value;            // presets 1/2/5 unchanged
+  }
+};
+$('stepcustom').oninput = e => {
+  if ($('framestep').value !== 'custom') return;
+  A.step = customInt(e.target, 1, A.frameCount || 1e9, A.step || 1);
+};
+$('loop').onchange = e => A.loop = e.target.checked;
+$('resetView').onclick = () => A.comp && A.comp.autoView(400);
+$('spin').onchange = e => stage.setSpin(e.target.checked);
+$('mouse').onchange = e => { try { stage.setMouse(e.target.value); } catch (err) {} };
+
+// ---- selection UI wiring -------------------------------------------
+// One RepManager owns all selection representations; the panel UI (built
+// into #selgroup by selection_ui.js) drives it. Each row is independent —
+// add / edit / hide / duplicate / delete touch exactly one overlay.
+SEL.manager = new RepManager(stage, SELCTX, {
+  warn: m => setStatus(m, false),
+});
+// Side channel for Cα/Backbone modes: current-frame coordinates for the
+// selected atoms the main stream does NOT transfer (e.g. SER side chains).
+// Reads the SAME /traj/frame endpoint the trajectory uses, with the same
+// token protocol; nothing in the trajectory, cache or server changes.
+SEL.coords = new SelCoords({
+  comp: () => A.comp,
+  frameUrl: f => BASE + 'traj/frame/' + f + '/' + TRAJ_URL,
+});
+SEL.coords.onChange = () => {
+  // A side-channel frame just landed: re-patch every live overlay with it.
+  if (SEL.manager) SEL.manager.onFrame(A.frame);
+};
+window.SelPanelUI = SelPanel.build('selgroup', SEL.manager, {
+  app: () => A, engine: () => SEL.engine,
+});
+stage.signals.clicked.add(pk => SelUI.onPick(pk));
+
+document.querySelectorAll('[data-rep]').forEach(b => b.onclick = () => {
+  const rep = b.dataset.rep;
+  if (!A.comp || rep === A.rep) return;
+  document.querySelectorAll('[data-rep]').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  const wasSurface = A.rep === 'surface';
+  const wasGsurf = A.rep === 'gsurf';
+  A.rep = rep;
+  if (wasSurface && rep !== 'surface') srCleanup();  // before the proxy is
+  // removed by rebuildProteinRep below: release slot state + timer so no
+  // stale surface rep/worker reference survives the switch.
+  const isSurface = rep === 'surface';
+  const isGsurf = rep === 'gsurf';
+  $('surfrow').hidden = !(isSurface || isGsurf);
+  $('surfnote').hidden = !isSurface;
+  $('gsurfrow').hidden = !isGsurf;
+  $('gsurfrow2').hidden = !isGsurf;
+  $('gsurfstat').hidden = !isGsurf;
+  $('gsurfnote').hidden = !isGsurf;
+  if (isSurface) {
+    // The mesh rebuilds per frame but playback is supported: the grid runs
+    // coarse while playing (see applySurfaceQuality) and refines on pause.
+    // Any running playback keeps running when switching into Surface.
+    if (wasGsurf) GaussSurf.setActive(false);
+    setStatus('Surface active — molecular surface, rebuilt each frame. ' +
+              'Coarse while playing, refined when paused.');
+  } else if (isGsurf) {
+    // Gaussian Surface animates: playback stays available. Density is
+    // computed in a Worker; the protein rep itself is not drawn.
+    setStatus('Gaussian Surface — QuickSurf-like density envelope. Play ' +
+              'works; quality adapts (coarse while playing, selected quality ' +
+              'when paused).');
+  } else if (wasSurface || wasGsurf) {
+    if (wasGsurf) GaussSurf.setActive(false);
+    setStatus('Ready.');
+  }
+  // Switching INTO surface: rebuildProteinRep() -> srBegin() starts the
+  // double-buffered pipeline. Switching OUT of surface: rebuildProteinRep()
+  // removes both surface proxies (they are no longer 'surface'-kept), and
+  // srTick releases the slot state so no stale mesh or worker survives.
+  rebuildProteinRep();
+  if (isGsurf) { GaussSurf.rescan(true); GaussSurf.refresh(); }
+});
+// Opacity: live-tried via setParameters while dragging; the slider commit
+// (drag end) rebuilds the surface rep with the new value, which is the
+// only path guaranteed to reach the shader in this NGL build (its live
+// opacity parameter plumbing is incomplete). Rebuild is one mesh build —
+// cheap on the Cα subset, slower on Full.
+let surfOpacityDebounce = null;
+$('surfopacity').oninput = e => {
+  $('surfopacityval').textContent = e.target.value + '%';
+  const p = (+e.target.value) / 100;
+  if (A.rep === 'gsurf') { GaussSurf.applyOpacity(); return; }
+  A.comp && A.comp.eachRepresentation(r => {
+    if (r.name === 'surface') r.setParameters({ transparent: true, opacity: p });
+  });
+};
+$('surfopacity').onchange = () => {
+  if (A.rep === 'gsurf') return;             // gaussian: live path works
+  if (A.rep !== 'surface') return;
+  if (surfOpacityDebounce) clearTimeout(surfOpacityDebounce);
+  surfOpacityDebounce = setTimeout(() => {
+    surfOpacityDebounce = null;
+    if (A.rep === 'surface') rebuildProteinRep();
+  }, 400);
+};
+$('gsquality').onchange = e => GaussSurf.setQuality(e.target.value);
+$('gswater').onchange = e => GaussSurf.setIncludeWater(e.target.checked);
+$('gshet').onchange = e => GaussSurf.setIncludeHets(e.target.checked);
+$('colorScheme').onchange = e => {
+  A.color = e.target.value;
+  rebuildProteinRep();
+};
+$('framestep').onchange = e => { A.step = +e.target.value; };
+
+let switching = false;
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => {
+  const view = b.dataset.view;
+  if (!A.comp || view === A.view || switching) return;
+  document.querySelectorAll('[data-view]').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  A.view = view; pause();
+  if (selDebounce) { clearTimeout(selDebounce); selDebounce = null; }
+  setStatus('Switching to ' + (view==='ca' ? 'Cα fast'
+          : view==='bb' ? 'backbone' : 'full atoms') + ' mode…');
+  // Defer to the next macrotask so the button repaints before the long
+  // (single-threaded) setSelection/rep-rebuild, and coalesce fast clicks.
+  switching = true;
+  setTimeout(() => {
+    try { applyViewSelection(); } finally {
+      switching = false;
+      setStatus('Ready.');
+    }
+  }, 0);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); A.playing ? pause() : play(); }
+  else if (e.key === 'ArrowRight') { pause(); requestFrame(A.frame + 1); }
+  else if (e.key === 'ArrowLeft')  { pause(); requestFrame(A.frame - 1); }
+});
+window.addEventListener('resize', () => stage.handleResize());
+
+window.__stage = stage;  // debugging handle
+window.__A = A;          // debugging handle
+window.SEL = SEL;        // selection state + engine (console/test handle)
+window.SelUI = SelUI;    // selection UI controller (console/test handle)
+boot().catch(e => setStatus('Failed to load structure: ' + e, true));
+</script>
+</body>
+</html>

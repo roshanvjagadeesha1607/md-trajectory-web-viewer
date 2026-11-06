@@ -1,0 +1,19 @@
+# Runtime dependencies for the MD trajectory web viewer.
+#
+# These are the ONLY packages the server, registry and CLI tools import at
+# run time. Pinned to the versions this build is developed and tested
+# against; another machine resolves a compatible environment from them.
+# install.sh installs just this file (see requirements-dev.txt for the
+# optional browser-test extras used during development — NOT needed to run).
+#
+# Needs Python 3.9+ (tested on 3.12). Wheels exist for linux x86-64 and
+# aarch64; on other platforms pip builds from source (needs a C compiler
+# for numpy/scipy/mdtraj).
+
+Flask==3.1.3
+waitress==3.0.2
+numpy==2.4.6
+scipy==1.18.1
+# mdtraj's XTC reader does not link GROMACS at runtime; the bundled XDR
+# support package does, so mdtraj alone is the whole dependency here.
+mdtraj==1.11.1.post2

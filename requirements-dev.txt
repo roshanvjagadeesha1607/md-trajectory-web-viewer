@@ -1,0 +1,13 @@
+# OPTIONAL development extras — NOT needed to run the viewer.
+#
+#   venv/bin/pip install -r requirements-dev.txt
+#
+# MDAnalysis and matplotlib back a few older benchmark scripts under
+# tools/; playwright drives the headless-browser smoke tests. The
+# folder-feature test suite (tools/folder_feature_test.py) needs only
+# the runtime requirements.
+
+-r requirements.txt
+MDAnalysis==2.10.0
+matplotlib==3.11.1
+playwright==1.62.0
