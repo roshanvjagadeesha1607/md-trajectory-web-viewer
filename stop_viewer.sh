@@ -12,9 +12,5 @@ if [ -f "$PIDFILE" ]; then
     fi
     rm -f "$PIDFILE"
 else
-    echo "No pidfile found; looking for a python serve.py process..."
-    # Match only the interpreter running our serve.py, never this script.
-    for pid in $(pgrep -f "python .*serve\.py" 2>/dev/null); do
-        kill "$pid" && echo "Stopped viewer server (PID $pid)."
-    done
+    echo "No PID file found; no server stopped."
 fi
